@@ -152,7 +152,7 @@ def spd_to_xyz(wavelengths, spd, x_bar, y_bar, z_bar):
 # STEP 5: MAIN LIGHT ENGINE SIMULATION & CALIBRATION ENGINE
 # ==============================================================================
 def generate_colorimetry_simulation():
-    print("Executing Barco Light Engine Colorimetry Simulation...")
+    print("Executing Light Engine Colorimetry Simulation...")
 
     # 1. Define Wavelength Axis
     # The human visual spectrum spans approximately 380 nm (violet) to 780 nm (deep red).
@@ -227,7 +227,7 @@ def generate_colorimetry_simulation():
     ax1.plot(wavelengths, w_r * spd_red_laser, 'r-', label='Red Laser (638 nm)', linewidth=2)
     ax1.plot(wavelengths, spd_engine_total, 'k-', label='D65 Balanced Engine Output', linewidth=2.5)
 
-    ax1.set_title("Barco Light Engine: Solid-State Spectral Power Distributions", fontsize=11, fontweight="bold")
+    ax1.set_title("Light Engine: Solid-State Spectral Power Distributions", fontsize=11, fontweight="bold")
     ax1.set_xlabel("Wavelength (nm)", fontsize=10)
     ax1.set_ylabel("Normalized Intensity (a.u.)", fontsize=10)
     ax1.set_xlim([380, 750])
