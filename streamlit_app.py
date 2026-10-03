@@ -307,4 +307,4 @@ with tab3:
         st.code(f"[X_target, Y_target, Z_target] = [{target_xyz[0]:.3f}, {target_xyz[1]:.3f}, {target_xyz[2]:.3f}]")
 
 st.markdown("---")
-st.caption("Senior Optical Engineer Portfolio Project | Developed in Python & Streamlit")
+st.caption("Optical Engineer Portfolio Project | Developed in Python & Streamlit")
