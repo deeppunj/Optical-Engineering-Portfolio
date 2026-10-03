@@ -4,10 +4,14 @@ SOLID-STATE LIGHT ENGINE & CIE 1931 COLORIMETRY INTERACTIVE SIMULATOR
 ================================================================================
 An industrial-grade Streamlit web application designed for optical engineers
 and display architects. Models hybrid Laser-Phosphor projector light engines,
-calculates CIE 1931 chromaticity coordinates, solves D65/DCI white balance
+calculates CIE 1931 chromaticity coordinates, solves D65/DCI white balance 
 calibration via linear algebra, and evaluates color gamut coverage.
+
+Run locally in PyCharm or Terminal:
+    streamlit run app.py
 ================================================================================
 """
+
 import os
 import numpy as np
 import plotly.graph_objects as go
@@ -23,22 +27,18 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Inject custom CSS for clean padding and centered chart containers
+# Custom CSS to reduce top whitespace margin in Streamlit
 st.markdown("""
-<style>
-    .block-container {
-        padding-top: 1.5rem;
-        padding-bottom: 2rem;
-    }
-    .stPlotlyChart {
-        display: flex;
-        justify-content: center;
-    }
-</style>
+    <style>
+        .block-container {
+            padding-top: 1.2rem;
+            padding-bottom: 2rem;
+        }
+    </style>
 """, unsafe_allow_html=True)
 
 # ==============================================================================
-# STEP 1: NUMPY 2.0+ BACKWARD COMPATIBILITY MONKEYPATCH
+# STEP 1: NUMPY 2.0+ MONKEYPATCH FOR BACKWARD COMPATIBILITY
 # ==============================================================================
 if not hasattr(np, "asfarray"):
     np.asfarray = lambda a, dtype=np.float64: np.asarray(a, dtype=dtype)
@@ -56,16 +56,23 @@ if not hasattr(np, "bool_"):
 
 @st.cache_data
 def get_cie1931_color_matching_functions(wavelengths):
+    """
+    Returns CIE 1931 2-degree Standard Observer color matching functions x_bar, y_bar, z_bar.
+    Cached with @st.cache_data for instant slider performance.
+    """
     wl = wavelengths
+    # x_bar curve (Red response with secondary blue lobe)
     x1 = 1.056 * np.exp(-0.5 * ((wl - 599.8) / 37.9)**2)
     x2 = 0.362 * np.exp(-0.5 * ((wl - 442.0) / 16.0)**2)
     x3 = -0.065 * np.exp(-0.5 * ((wl - 501.1) / 20.4)**2)
     x_bar = np.maximum(0, x1 + x2 + x3)
 
+    # y_bar curve (Photopic Luminous Efficiency peak ~555 nm)
     y1 = 0.821 * np.exp(-0.5 * ((wl - 568.8) / 46.9)**2)
     y2 = 0.286 * np.exp(-0.5 * ((wl - 530.9) / 22.7)**2)
     y_bar = np.maximum(0, y1 + y2)
 
+    # z_bar curve (Blue response peak ~437 nm)
     z1 = 1.217 * np.exp(-0.5 * ((wl - 437.0) / 11.8)**2)
     z2 = 0.681 * np.exp(-0.5 * ((wl - 459.0) / 26.0)**2)
     z_bar = np.maximum(0, z1 + z2)
@@ -74,11 +81,13 @@ def get_cie1931_color_matching_functions(wavelengths):
 
 
 def gaussian_spd(wavelengths, peak, fwhm, amplitude=1.0):
+    """Generates a Gaussian Spectral Power Distribution (SPD)."""
     sigma = fwhm / (2.0 * np.sqrt(2.0 * np.log(2.0)))
     return amplitude * np.exp(-0.5 * ((wavelengths - peak) / sigma)**2)
 
 
 def spd_to_xyz(wavelengths, spd, x_bar, y_bar, z_bar):
+    """Integrates SPD with CIE 1931 curves to get Tristimulus X, Y, Z and chromaticity x, y."""
     d_lambda = wavelengths[1] - wavelengths[0]
     X = np.sum(spd * x_bar) * d_lambda
     Y = np.sum(spd * y_bar) * d_lambda
@@ -90,6 +99,7 @@ def spd_to_xyz(wavelengths, spd, x_bar, y_bar, z_bar):
 
 
 def polygon_area(x_coords, y_coords):
+    """Calculates 2D polygon area using Shoelace formula to measure Gamut Area."""
     return 0.5 * np.abs(np.dot(x_coords, np.roll(y_coords, 1)) - np.dot(y_coords, np.roll(x_coords, 1)))
 
 
@@ -104,28 +114,62 @@ architectures for DLP projection systems. Tune source wavelengths, dichroic filt
 white balance to target CIE color points in real time.
 """)
 
-st.sidebar.header("🔬 Light Engine Architecture Parameters")
+# --- SIDEBAR SECTION 1: CHART WINDOW DIMENSION CONTROLS (PLACED AT THE VERY TOP) ---
+st.sidebar.header("📐 1. Graph Window Dimensions")
+st.sidebar.info("Adjust these sliders to resize the figure window on your screen:")
 
-# Sidebar Group 1: Blue Laser Diode Settings
-st.sidebar.subheader("1. Blue Laser Diode Primary")
+chart_width = st.sidebar.slider(
+    "Graph Width (px)", 
+    min_value=350, 
+    max_value=1200, 
+    value=600, 
+    step=25,
+    help="Controls the exact pixel width of the figure window."
+)
+
+chart_height = st.sidebar.slider(
+    "Graph Height (px)", 
+    min_value=250, 
+    max_value=800, 
+    value=450, 
+    step=25,
+    help="Controls the exact pixel height of the figure window."
+)
+
+lock_aspect = st.sidebar.checkbox(
+    "Lock 1:1 Aspect Ratio (Preserve Geometry)", 
+    value=True,
+    help="Locks x and y axes to equal physical scale so color geometry isn't stretched."
+)
+
+st.sidebar.markdown("---")
+
+# --- SIDEBAR SECTION 2: LIGHT ENGINE ARCHITECTURE PARAMETERS ---
+st.sidebar.header("🔬 2. Light Engine Architecture")
+
+st.sidebar.subheader("A. Blue Laser Diode Primary")
 blue_peak = st.sidebar.slider("Blue Wavelength (nm)", 440.0, 470.0, 455.0, 1.0, help="Center wavelength of excitation laser diode.")
 blue_fwhm = st.sidebar.slider("Blue FWHM Line-width (nm)", 1.0, 10.0, 3.5, 0.5)
 
-# Sidebar Group 2: Yellow Phosphor & Green Dichroic Extraction Filter
-st.sidebar.subheader("2. Phosphor Wheel & Green Dichroic Filter")
+st.sidebar.subheader("B. Yellow Phosphor & Green Dichroic Filter")
 phosphor_peak = st.sidebar.slider("Phosphor Peak Emission (nm)", 520.0, 580.0, 550.0, 2.0)
 phosphor_fwhm = st.sidebar.slider("Phosphor Bandwidth FWHM (nm)", 80.0, 140.0, 110.0, 5.0)
-green_filter_fwhm = st.sidebar.slider("Green Dichroic Filter Bandwidth (nm)", 15.0, 60.0, 35.0, 1.0, 
-                                     help="Wider filter = higher brightness, but reduced green color purity.")
+green_filter_fwhm = st.sidebar.slider(
+    "Green Dichroic Filter Bandwidth (nm)", 15.0, 60.0, 35.0, 1.0, 
+    help="Wider filter = higher brightness, but reduced green color purity."
+)
 
-# Sidebar Group 3: Red Primary Source
-st.sidebar.subheader("3. Red Primary Source")
-red_peak = st.sidebar.slider("Red Peak Wavelength (nm)", 615.0, 660.0, 638.0, 1.0, 
-                            help="625 nm = Red LED / 638 nm = Direct Red Laser Diode.")
+st.sidebar.subheader("C. Red Primary Source")
+red_peak = st.sidebar.slider(
+    "Red Peak Wavelength (nm)", 615.0, 660.0, 638.0, 1.0, 
+    help="625 nm = Red LED / 638 nm = Direct Red Laser Diode."
+)
 red_fwhm = st.sidebar.slider("Red FWHM Line-width (nm)", 2.0, 25.0, 12.0, 1.0)
 
-# Sidebar Group 4: Target White Point & Gamut Overlays
-st.sidebar.subheader("4. Display White Point & Standards")
+st.sidebar.markdown("---")
+
+# --- SIDEBAR SECTION 3: DISPLAY WHITE POINT & STANDARDS ---
+st.sidebar.header("🎯 3. Display White Point & Standards")
 white_option = st.sidebar.selectbox(
     "Target Calibration White Point",
     ["D65 (Daylight - x=0.3127, y=0.3290)", 
@@ -144,20 +188,10 @@ else:
     target_x_val = st.sidebar.number_input("Custom Target x", 0.100, 0.600, 0.3127, 0.005)
     target_y_val = st.sidebar.number_input("Custom Target y", 0.100, 0.600, 0.3290, 0.005)
 
-st.sidebar.markdown("---")
 st.sidebar.subheader("Display Gamut Overlays")
 show_rec709 = st.sidebar.checkbox("Overlay Rec. 709 (HDTV)", value=True)
 show_dcip3 = st.sidebar.checkbox("Overlay DCI-P3 (Cinema)", value=True)
 show_rec2020 = st.sidebar.checkbox("Overlay Rec. 2020 (UHD)", value=False)
-
-st.sidebar.markdown("---")
-st.sidebar.subheader("📐 Chart Dimensions & Window Controls")
-chart_width = st.sidebar.slider("Graph Width (px)", 350, 1100, 600, 25, 
-                               help="Adjust exact width of the figure window.")
-chart_height = st.sidebar.slider("Graph Height (px)", 300, 800, 500, 25, 
-                                help="Adjust exact height of the figure window.")
-lock_aspect = st.sidebar.checkbox("Lock 1:1 Aspect Ratio (Prevents Distortion)", value=True,
-                                 help="Keeps x and y axes at equal physical scale so color geometry isn't stretched.")
 
 
 # ==============================================================================
@@ -191,7 +225,7 @@ target_xyz = np.array([target_x_val, target_y_val, z_target_val])
 
 try:
     weights = np.linalg.solve(M, target_xyz)
-    weights = weights / np.max(weights)
+    weights = weights / np.max(weights)  # Normalize max weight to 1.0
     w_r, w_g, w_b = weights[0], weights[1], weights[2]
 except np.linalg.LinAlgError:
     w_r, w_g, w_b = 1.0, 1.0, 1.0
@@ -225,7 +259,7 @@ st.markdown("---")
 tab1, tab2, tab3 = st.tabs(["📊 CIE 1931 Chromaticity Diagram", "📈 Spectral Power Distributions", "📋 Numerical Data & Calibration"])
 
 with tab1:
-    st.caption("💡 Adjust Graph Width & Height sliders in the sidebar to resize this window box. Toggle 'Lock 1:1 Aspect Ratio' to preserve true color geometry.")
+    st.caption("💡 Adjust **Graph Width** and **Graph Height** in Section 1 of the sidebar to resize this window box.")
 
     fig_cie = go.Figure()
 
@@ -242,18 +276,18 @@ with tab1:
     fig_cie.add_trace(go.Scatter(
         x=locus_x, y=locus_y,
         mode='lines',
-        name='CIE 1931 Spectral Locus',
-        line=dict(color='#888888', width=2),
+        name='CIE 1931 Locus',
+        line=dict(color='#cccccc', width=2),
         customdata=locus_wl,
         hovertemplate='Wavelength: %{customdata:.1f} nm<br>x: %{x:.4f}<br>y: %{y:.4f}<extra></extra>'
     ))
 
-    # Line of purples
+    # Line of Purples
     fig_cie.add_trace(go.Scatter(
         x=[locus_x[0], locus_x[-1]], y=[locus_y[0], locus_y[-1]],
         mode='lines',
         name='Line of Purples',
-        line=dict(color='#aa55ff', width=1.5, dash='dot'),
+        line=dict(color='#888888', width=1.5, dash='dot'),
         hoverinfo='skip'
     ))
 
@@ -284,7 +318,7 @@ with tab1:
             y=[0.292, 0.797, 0.046, 0.292],
             mode='lines',
             name='Rec. 2020 (UHD)',
-            line=dict(color='#00ffaa', width=1.5, dash='dot'),
+            line=dict(color='#00cc66', width=1.5, dash='dot'),
             hovertemplate='Rec. 2020<br>x: %{x:.3f}, y: %{y:.3f}<extra></extra>'
         ))
 
@@ -305,7 +339,7 @@ with tab1:
     fig_cie.add_trace(go.Scatter(
         x=[x_red], y=[y_red],
         mode='markers',
-        name=f'Red Primary ({x_red:.3f}, {y_red:.3f})',
+        name=f'Red ({x_red:.3f}, {y_red:.3f})',
         marker=dict(color='#ff3333', size=12, symbol='circle', line=dict(color='#ffffff', width=1.5)),
         hovertemplate='<b>Red Primary</b><br>Peak: ' + f'{red_peak:.1f}' + ' nm<br>x: %{x:.4f}<br>y: %{y:.4f}<extra></extra>'
     ))
@@ -313,7 +347,7 @@ with tab1:
     fig_cie.add_trace(go.Scatter(
         x=[x_green], y=[y_green],
         mode='markers',
-        name=f'Green Primary ({x_green:.3f}, {y_green:.3f})',
+        name=f'Green ({x_green:.3f}, {y_green:.3f})',
         marker=dict(color='#33cc33', size=12, symbol='circle', line=dict(color='#ffffff', width=1.5)),
         hovertemplate='<b>Green Primary</b><br>Extracted Green<br>x: %{x:.4f}<br>y: %{y:.4f}<extra></extra>'
     ))
@@ -321,7 +355,7 @@ with tab1:
     fig_cie.add_trace(go.Scatter(
         x=[x_blue], y=[y_blue],
         mode='markers',
-        name=f'Blue Primary ({x_blue:.3f}, {y_blue:.3f})',
+        name=f'Blue ({x_blue:.3f}, {y_blue:.3f})',
         marker=dict(color='#3388ff', size=12, symbol='circle', line=dict(color='#ffffff', width=1.5)),
         hovertemplate='<b>Blue Primary</b><br>Peak: ' + f'{blue_peak:.1f}' + ' nm<br>x: %{x:.4f}<br>y: %{y:.4f}<extra></extra>'
     ))
@@ -361,14 +395,12 @@ with tab1:
         hovermode="closest"
     )
 
-    # Centered container display
-    c_left, c_mid, c_right = st.columns([0.05, 0.9, 0.05])
-    with c_mid:
-        st.plotly_chart(fig_cie, use_container_width=False)
+    # Render at exact pixel dimensions selected in sidebar
+    st.plotly_chart(fig_cie, use_container_width=False)
 
 
 with tab2:
-    st.caption("💡 Adjust Graph Width & Height sliders in the sidebar to resize this window box.")
+    st.caption("💡 Adjust **Graph Width** and **Graph Height** in Section 1 of the sidebar to resize this window box.")
 
     fig_spd = go.Figure()
 
@@ -407,9 +439,9 @@ with tab2:
     fig_spd.add_trace(go.Scatter(
         x=wavelengths, y=spd_engine_total,
         mode='lines',
-        name='D65 Balanced Engine Output',
+        name='D65 Balanced Output',
         line=dict(color='#17becf', width=3),
-        hovertemplate='Calibrated Engine Output<br>Wavelength: %{x:.1f} nm<br>Intensity: %{y:.4f}<extra></extra>'
+        hovertemplate='Calibrated Output<br>Wavelength: %{x:.1f} nm<br>Intensity: %{y:.4f}<extra></extra>'
     ))
 
     fig_spd.update_layout(
@@ -425,9 +457,7 @@ with tab2:
         hovermode="x unified"
     )
 
-    c_left, c_mid, c_right = st.columns([0.05, 0.9, 0.05])
-    with c_mid:
-        st.plotly_chart(fig_spd, use_container_width=False)
+    st.plotly_chart(fig_spd, use_container_width=False)
 
 
 with tab3:
@@ -457,4 +487,4 @@ with tab3:
         st.code(f"[X_target, Y_target, Z_target] = [{target_xyz[0]:.3f}, {target_xyz[1]:.3f}, {target_xyz[2]:.3f}]")
 
 st.markdown("---")
-st.caption("Optical Engineer Portfolio Project | Developed in Python & Streamlit")
+st.caption("Senior Optical Engineer Portfolio Project | Developed in Python & Streamlit")
