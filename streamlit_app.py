@@ -8,7 +8,7 @@ calculates CIE 1931 chromaticity coordinates, solves D65/DCI white balance
 calibration via linear algebra, and evaluates color gamut coverage.
 
 Run locally via terminal:
-    streamlit run app.py
+    streamlit run streamlit_app.py
 ================================================================================
 """
 
