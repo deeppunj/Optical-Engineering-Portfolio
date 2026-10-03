@@ -7,16 +7,14 @@ and display architects. Models hybrid Laser-Phosphor projector light engines,
 calculates CIE 1931 chromaticity coordinates, solves D65/DCI white balance 
 calibration via linear algebra, and evaluates color gamut coverage.
 
-Run locally via terminal:
-    streamlit run streamlit_app.py
+Powered by Plotly for interactive hovering, zooming, panning, and dynamic
+chart resizing!
 ================================================================================
 """
 
 import os
 import numpy as np
-import matplotlib
-matplotlib.use("Agg")  # Non-interactive backend for headless rendering
-import matplotlib.pyplot as plt
+import plotly.graph_objects as go
 import streamlit as st
 
 # ==============================================================================
@@ -152,6 +150,11 @@ show_rec709 = st.sidebar.checkbox("Overlay Rec. 709 (HDTV)", value=True)
 show_dcip3 = st.sidebar.checkbox("Overlay DCI-P3 (Cinema)", value=True)
 show_rec2020 = st.sidebar.checkbox("Overlay Rec. 2020 (UHD)", value=False)
 
+st.sidebar.markdown("---")
+st.sidebar.subheader("📐 Interactive Graph Display Settings")
+chart_height = st.sidebar.slider("Graph Display Height (px)", 400, 900, 650, 50, 
+                                help="Drag this slider to easily resize the chart height to fit your monitor!")
+
 
 # ==============================================================================
 # COMPUTATION ENGINE
@@ -218,67 +221,193 @@ st.markdown("---")
 tab1, tab2, tab3 = st.tabs(["📊 CIE 1931 Chromaticity Diagram", "📈 Spectral Power Distributions", "📋 Numerical Data & Calibration"])
 
 with tab1:
-    fig, ax = plt.subplots(figsize=(8, 7), dpi=150)
-    
+    st.markdown("💡 *Hover over any point to see exact coordinates. Click and drag a box to zoom into any region; double-click to reset view. Use the sidebar slider to resize the graph height.*")
+
+    fig_cie = go.Figure()
+
     # Calculate outer spectral locus
-    locus_x, locus_y = [], []
+    locus_x, locus_y, locus_wl = [], [], []
     for wl in np.linspace(380, 700, 200):
         spd_mono = gaussian_spd(wavelengths, peak=wl, fwhm=1.0)
         _, _, _, lx, ly = spd_to_xyz(wavelengths, spd_mono, x_bar, y_bar, z_bar)
         locus_x.append(lx)
         locus_y.append(ly)
+        locus_wl.append(wl)
 
-    ax.plot(locus_x, locus_y, 'k-', linewidth=2, label="CIE 1931 Spectral Locus")
-    ax.plot([locus_x[0], locus_x[-1]], [locus_y[0], locus_y[-1]], 'k:', linewidth=1)
+    # 1. CIE 1931 Spectral Locus
+    fig_cie.add_trace(go.Scatter(
+        x=locus_x, y=locus_y,
+        mode='lines',
+        name='CIE 1931 Spectral Locus',
+        line=dict(color='black', width=2.5),
+        customdata=locus_wl,
+        hovertemplate='Wavelength: %{customdata:.1f} nm<br>x: %{x:.4f}<br>y: %{y:.4f}<extra></extra>'
+    ))
 
-    # Reference Gamuts
+    # Line connecting locus ends (purple line)
+    fig_cie.add_trace(go.Scatter(
+        x=[locus_x[0], locus_x[-1]], y=[locus_y[0], locus_y[-1]],
+        mode='lines',
+        name='Line of Purples',
+        line=dict(color='purple', width=1.5, dash='dot'),
+        hoverinfo='skip'
+    ))
+
+    # 2. Reference Display Gamut Overlays
     if show_rec709:
-        ax.plot([0.64, 0.30, 0.15, 0.64], [0.33, 0.60, 0.06, 0.33], 'grey', linestyle='--', label='Rec. 709 (HDTV)', linewidth=1.5)
-    if show_dcip3:
-        ax.plot([0.68, 0.265, 0.15, 0.68], [0.32, 0.690, 0.06, 0.32], 'magenta', linestyle='-.', label='DCI-P3 (Cinema)', linewidth=1.5)
-    if show_rec2020:
-        ax.plot([0.708, 0.170, 0.131, 0.708], [0.292, 0.797, 0.046, 0.292], 'darkgreen', linestyle=':', label='Rec. 2020 (UHD)', linewidth=1.5)
+        fig_cie.add_trace(go.Scatter(
+            x=[0.64, 0.30, 0.15, 0.64],
+            y=[0.33, 0.60, 0.06, 0.33],
+            mode='lines',
+            name='Rec. 709 (HDTV)',
+            line=dict(color='gray', width=1.5, dash='dash'),
+            hovertemplate='Rec. 709<br>x: %{x:.3f}, y: %{y:.3f}<extra></extra>'
+        ))
 
-    # Light Engine Gamut
+    if show_dcip3:
+        fig_cie.add_trace(go.Scatter(
+            x=[0.68, 0.265, 0.15, 0.68],
+            y=[0.32, 0.690, 0.06, 0.32],
+            mode='lines',
+            name='DCI-P3 (Cinema)',
+            line=dict(color='magenta', width=1.5, dash='dashdot'),
+            hovertemplate='DCI-P3<br>x: %{x:.3f}, y: %{y:.3f}<extra></extra>'
+        ))
+
+    if show_rec2020:
+        fig_cie.add_trace(go.Scatter(
+            x=[0.708, 0.170, 0.131, 0.708],
+            y=[0.292, 0.797, 0.046, 0.292],
+            mode='lines',
+            name='Rec. 2020 (UHD)',
+            line=dict(color='darkgreen', width=1.5, dash='dot'),
+            hovertemplate='Rec. 2020<br>x: %{x:.3f}, y: %{y:.3f}<extra></extra>'
+        ))
+
+    # 3. Simulated Engine Gamut Polygon
     engine_x = [x_red, x_green, x_blue, x_red]
     engine_y = [y_red, y_green, y_blue, y_red]
-    ax.plot(engine_x, engine_y, 'b-', linewidth=2.5, label='Simulated Engine Gamut')
-    ax.fill(engine_x, engine_y, color='blue', alpha=0.12)
+    fig_cie.add_trace(go.Scatter(
+        x=engine_x, y=engine_y,
+        mode='lines',
+        fill='toself',
+        fillcolor='rgba(0, 102, 255, 0.15)',
+        name='Simulated Engine Gamut',
+        line=dict(color='royalblue', width=3),
+        hovertemplate='Engine Gamut Corner<br>x: %{x:.4f}<br>y: %{y:.4f}<extra></extra>'
+    ))
 
-    # Scatter Primaries & White Point
-    ax.scatter([x_red], [y_red], color='red', s=80, zorder=5, label=f'Red ({x_red:.3f}, {y_red:.3f})')
-    ax.scatter([x_green], [y_green], color='green', s=80, zorder=5, label=f'Green ({x_green:.3f}, {y_green:.3f})')
-    ax.scatter([x_blue], [y_blue], color='blue', s=80, zorder=5, label=f'Blue ({x_blue:.3f}, {y_blue:.3f})')
-    ax.scatter([x_white], [y_white], color='black', marker='*', s=160, zorder=6, label=f'Engine White ({x_white:.3f}, {y_white:.3f})')
-    ax.scatter([target_x_val], [target_y_val], color='orange', marker='x', s=100, zorder=6, label=f'Target ({target_x_val:.3f}, {target_y_val:.3f})')
+    # 4. Primary Markers & White Point
+    fig_cie.add_trace(go.Scatter(
+        x=[x_red], y=[y_red],
+        mode='markers',
+        name=f'Red Primary ({x_red:.3f}, {y_red:.3f})',
+        marker=dict(color='red', size=14, symbol='circle', line=dict(color='white', width=1.5)),
+        hovertemplate='<b>Red Primary</b><br>Peak: ' + f'{red_peak:.1f}' + ' nm<br>x: %{x:.4f}<br>y: %{y:.4f}<extra></extra>'
+    ))
 
-    ax.set_title("CIE 1931 Chromaticity Diagram & Gamut Comparison", fontsize=12, fontweight="bold")
-    ax.set_xlabel("CIE x Chromaticity", fontsize=10)
-    ax.set_ylabel("CIE y Chromaticity", fontsize=10)
-    ax.set_xlim([0, 0.8])
-    ax.set_ylim([0, 0.9])
-    ax.grid(True, linestyle=":", alpha=0.6)
-    ax.legend(loc="upper right", fontsize=8.5)
+    fig_cie.add_trace(go.Scatter(
+        x=[x_green], y=[y_green],
+        mode='markers',
+        name=f'Green Primary ({x_green:.3f}, {y_green:.3f})',
+        marker=dict(color='green', size=14, symbol='circle', line=dict(color='white', width=1.5)),
+        hovertemplate='<b>Green Primary</b><br>Extracted Green<br>x: %{x:.4f}<br>y: %{y:.4f}<extra></extra>'
+    ))
 
-    st.pyplot(fig)
+    fig_cie.add_trace(go.Scatter(
+        x=[x_blue], y=[y_blue],
+        mode='markers',
+        name=f'Blue Primary ({x_blue:.3f}, {y_blue:.3f})',
+        marker=dict(color='blue', size=14, symbol='circle', line=dict(color='white', width=1.5)),
+        hovertemplate='<b>Blue Primary</b><br>Peak: ' + f'{blue_peak:.1f}' + ' nm<br>x: %{x:.4f}<br>y: %{y:.4f}<extra></extra>'
+    ))
+
+    fig_cie.add_trace(go.Scatter(
+        x=[x_white], y=[y_white],
+        mode='markers',
+        name=f'Engine White ({x_white:.3f}, {y_white:.3f})',
+        marker=dict(color='black', size=18, symbol='star', line=dict(color='yellow', width=1.5)),
+        hovertemplate='<b>Engine Calibrated White</b><br>x: %{x:.4f}<br>y: %{y:.4f}<extra></extra>'
+    ))
+
+    fig_cie.add_trace(go.Scatter(
+        x=[target_x_val], y=[target_y_val],
+        mode='markers',
+        name=f'Target ({target_x_val:.3f}, {target_y_val:.3f})',
+        marker=dict(color='darkorange', size=14, symbol='x', line=dict(color='darkorange', width=2.5)),
+        hovertemplate='<b>Target White Point</b><br>x: %{x:.4f}<br>y: %{y:.4f}<extra></extra>'
+    ))
+
+    fig_cie.update_layout(
+        title=dict(text="<b>CIE 1931 Chromaticity Diagram & Display Gamut Comparison</b>", font=dict(size=16)),
+        xaxis=dict(title="CIE x Chromaticity", range=[0.0, 0.82], gridcolor="rgba(200,200,200,0.4)", zeroline=False),
+        yaxis=dict(title="CIE y Chromaticity", range=[0.0, 0.90], gridcolor="rgba(200,200,200,0.4)", zeroline=False),
+        height=chart_height,
+        margin=dict(l=40, r=40, t=50, b=40),
+        legend=dict(x=0.68, y=0.98, bgcolor="rgba(255,255,255,0.85)", bordercolor="rgba(0,0,0,0.2)", borderwidth=1),
+        hovermode="closest"
+    )
+
+    st.plotly_chart(fig_cie, use_container_width=True)
+
 
 with tab2:
-    fig_spd, ax_spd = plt.subplots(figsize=(9, 4.5), dpi=150)
-    ax_spd.plot(wavelengths, w_b * spd_blue_laser, 'b-', label='Blue Laser', linewidth=2)
-    ax_spd.plot(wavelengths, spd_yellow_phosphor * 0.5, 'y--', label='Yellow Phosphor Emission', linewidth=1.8, alpha=0.8)
-    ax_spd.plot(wavelengths, w_g * spd_green_channel, 'g-', label='Filtered Green Primary', linewidth=2)
-    ax_spd.plot(wavelengths, w_r * spd_red_laser, 'r-', label='Red Laser/LED Primary', linewidth=2)
-    ax_spd.plot(wavelengths, spd_engine_total, 'k-', label='Calibrated White Output', linewidth=2.5)
+    st.markdown("💡 *Hover over the spectrum lines to inspect exact power spectral density at any wavelength (nm).*")
 
-    ax_spd.set_title("Solid-State Light Engine Spectral Power Distributions (SPDs)", fontsize=11, fontweight="bold")
-    ax_spd.set_xlabel("Wavelength (nm)", fontsize=10)
-    ax_spd.set_ylabel("Normalized Intensity (a.u.)", fontsize=10)
-    ax_spd.set_xlim([380, 750])
-    ax_spd.set_ylim([0, 1.2])
-    ax_spd.grid(True, linestyle=":", alpha=0.6)
-    ax_spd.legend(loc="upper right", fontsize=8.5)
+    fig_spd = go.Figure()
 
-    st.pyplot(fig_spd)
+    fig_spd.add_trace(go.Scatter(
+        x=wavelengths, y=w_b * spd_blue_laser,
+        mode='lines',
+        name='Blue Laser Primary',
+        line=dict(color='blue', width=2.5),
+        hovertemplate='Blue Laser<br>Wavelength: %{x:.1f} nm<br>Intensity: %{y:.4f}<extra></extra>'
+    ))
+
+    fig_spd.add_trace(go.Scatter(
+        x=wavelengths, y=spd_yellow_phosphor * 0.5,
+        mode='lines',
+        name='Yellow Phosphor Emission',
+        line=dict(color='gold', width=2, dash='dash'),
+        hovertemplate='Yellow Phosphor<br>Wavelength: %{x:.1f} nm<br>Intensity: %{y:.4f}<extra></extra>'
+    ))
+
+    fig_spd.add_trace(go.Scatter(
+        x=wavelengths, y=w_g * spd_green_channel,
+        mode='lines',
+        name='Filtered Green Primary',
+        line=dict(color='green', width=2.5),
+        hovertemplate='Filtered Green<br>Wavelength: %{x:.1f} nm<br>Intensity: %{y:.4f}<extra></extra>'
+    ))
+
+    fig_spd.add_trace(go.Scatter(
+        x=wavelengths, y=w_r * spd_red_laser,
+        mode='lines',
+        name='Red Laser/LED Primary',
+        line=dict(color='red', width=2.5),
+        hovertemplate='Red Primary<br>Wavelength: %{x:.1f} nm<br>Intensity: %{y:.4f}<extra></extra>'
+    ))
+
+    fig_spd.add_trace(go.Scatter(
+        x=wavelengths, y=spd_engine_total,
+        mode='lines',
+        name='D65 Balanced Engine Output',
+        line=dict(color='black', width=3),
+        hovertemplate='Calibrated Engine Output<br>Wavelength: %{x:.1f} nm<br>Intensity: %{y:.4f}<extra></extra>'
+    ))
+
+    fig_spd.update_layout(
+        title=dict(text="<b>Solid-State Light Engine Spectral Power Distributions (SPDs)</b>", font=dict(size=16)),
+        xaxis=dict(title="Wavelength (nm)", range=[380, 750], gridcolor="rgba(200,200,200,0.4)"),
+        yaxis=dict(title="Normalized Spectral Intensity (a.u.)", range=[0, 1.25], gridcolor="rgba(200,200,200,0.4)"),
+        height=int(chart_height * 0.8),
+        margin=dict(l=40, r=40, t=50, b=40),
+        legend=dict(x=0.68, y=0.98, bgcolor="rgba(255,255,255,0.85)", bordercolor="rgba(0,0,0,0.2)", borderwidth=1),
+        hovermode="x unified"
+    )
+
+    st.plotly_chart(fig_spd, use_container_width=True)
+
 
 with tab3:
     st.subheader("📋 Engineering Parameters & Matrix Solution Summary")
@@ -307,4 +436,4 @@ with tab3:
         st.code(f"[X_target, Y_target, Z_target] = [{target_xyz[0]:.3f}, {target_xyz[1]:.3f}, {target_xyz[2]:.3f}]")
 
 st.markdown("---")
-st.caption("Optical Engineer Portfolio Project | Developed in Python & Streamlit")
+st.caption("Senior Optical Engineer Portfolio Project | Developed in Python & Streamlit")
