@@ -4,14 +4,10 @@ SOLID-STATE LIGHT ENGINE & CIE 1931 COLORIMETRY INTERACTIVE SIMULATOR
 ================================================================================
 An industrial-grade Streamlit web application designed for optical engineers
 and display architects. Models hybrid Laser-Phosphor projector light engines,
-calculates CIE 1931 chromaticity coordinates, solves D65/DCI white balance 
+calculates CIE 1931 chromaticity coordinates, solves D65/DCI white balance
 calibration via linear algebra, and evaluates color gamut coverage.
-
-Powered by Plotly for interactive hovering, zooming, panning, and dynamic
-chart resizing!
 ================================================================================
 """
-
 import os
 import numpy as np
 import plotly.graph_objects as go
@@ -27,8 +23,22 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
+# Inject custom CSS for clean padding and centered chart containers
+st.markdown("""
+<style>
+    .block-container {
+        padding-top: 1.5rem;
+        padding-bottom: 2rem;
+    }
+    .stPlotlyChart {
+        display: flex;
+        justify-content: center;
+    }
+</style>
+""", unsafe_allow_html=True)
+
 # ==============================================================================
-# STEP 1: NUMPY 2.0+ MONKEYPATCH FOR BACKWARD COMPATIBILITY
+# STEP 1: NUMPY 2.0+ BACKWARD COMPATIBILITY MONKEYPATCH
 # ==============================================================================
 if not hasattr(np, "asfarray"):
     np.asfarray = lambda a, dtype=np.float64: np.asarray(a, dtype=dtype)
@@ -46,23 +56,16 @@ if not hasattr(np, "bool_"):
 
 @st.cache_data
 def get_cie1931_color_matching_functions(wavelengths):
-    """
-    Returns CIE 1931 2-degree Standard Observer color matching functions x_bar, y_bar, z_bar.
-    Cached with @st.cache_data to ensure instant execution across user slider changes.
-    """
     wl = wavelengths
-    # x_bar (Red response curve with primary peak ~600 nm and secondary blue lobe ~440 nm)
     x1 = 1.056 * np.exp(-0.5 * ((wl - 599.8) / 37.9)**2)
     x2 = 0.362 * np.exp(-0.5 * ((wl - 442.0) / 16.0)**2)
     x3 = -0.065 * np.exp(-0.5 * ((wl - 501.1) / 20.4)**2)
     x_bar = np.maximum(0, x1 + x2 + x3)
 
-    # y_bar (Green / Photopic Luminous Efficiency response peak ~555 nm)
     y1 = 0.821 * np.exp(-0.5 * ((wl - 568.8) / 46.9)**2)
     y2 = 0.286 * np.exp(-0.5 * ((wl - 530.9) / 22.7)**2)
     y_bar = np.maximum(0, y1 + y2)
 
-    # z_bar (Blue response curve peak ~437 nm)
     z1 = 1.217 * np.exp(-0.5 * ((wl - 437.0) / 11.8)**2)
     z2 = 0.681 * np.exp(-0.5 * ((wl - 459.0) / 26.0)**2)
     z_bar = np.maximum(0, z1 + z2)
@@ -71,13 +74,11 @@ def get_cie1931_color_matching_functions(wavelengths):
 
 
 def gaussian_spd(wavelengths, peak, fwhm, amplitude=1.0):
-    """Generates a Gaussian Spectral Power Distribution (SPD)."""
     sigma = fwhm / (2.0 * np.sqrt(2.0 * np.log(2.0)))
     return amplitude * np.exp(-0.5 * ((wavelengths - peak) / sigma)**2)
 
 
 def spd_to_xyz(wavelengths, spd, x_bar, y_bar, z_bar):
-    """Integrates SPD with CIE 1931 curves to get Tristimulus X, Y, Z and chromaticity x, y."""
     d_lambda = wavelengths[1] - wavelengths[0]
     X = np.sum(spd * x_bar) * d_lambda
     Y = np.sum(spd * y_bar) * d_lambda
@@ -89,7 +90,6 @@ def spd_to_xyz(wavelengths, spd, x_bar, y_bar, z_bar):
 
 
 def polygon_area(x_coords, y_coords):
-    """Calculates 2D polygon area using Shoelace formula to measure Gamut Area."""
     return 0.5 * np.abs(np.dot(x_coords, np.roll(y_coords, 1)) - np.dot(y_coords, np.roll(x_coords, 1)))
 
 
@@ -151,9 +151,13 @@ show_dcip3 = st.sidebar.checkbox("Overlay DCI-P3 (Cinema)", value=True)
 show_rec2020 = st.sidebar.checkbox("Overlay Rec. 2020 (UHD)", value=False)
 
 st.sidebar.markdown("---")
-st.sidebar.subheader("📐 Interactive Graph Display Settings")
-chart_height = st.sidebar.slider("Graph Display Height (px)", 400, 900, 650, 50, 
-                                help="Drag this slider to easily resize the chart height to fit your monitor!")
+st.sidebar.subheader("📐 Chart Dimensions & Window Controls")
+chart_width = st.sidebar.slider("Graph Width (px)", 350, 1100, 600, 25, 
+                               help="Adjust exact width of the figure window.")
+chart_height = st.sidebar.slider("Graph Height (px)", 300, 800, 500, 25, 
+                                help="Adjust exact height of the figure window.")
+lock_aspect = st.sidebar.checkbox("Lock 1:1 Aspect Ratio (Prevents Distortion)", value=True,
+                                 help="Keeps x and y axes at equal physical scale so color geometry isn't stretched.")
 
 
 # ==============================================================================
@@ -187,7 +191,7 @@ target_xyz = np.array([target_x_val, target_y_val, z_target_val])
 
 try:
     weights = np.linalg.solve(M, target_xyz)
-    weights = weights / np.max(weights)  # Normalize max weight to 1.0
+    weights = weights / np.max(weights)
     w_r, w_g, w_b = weights[0], weights[1], weights[2]
 except np.linalg.LinAlgError:
     w_r, w_g, w_b = 1.0, 1.0, 1.0
@@ -221,7 +225,7 @@ st.markdown("---")
 tab1, tab2, tab3 = st.tabs(["📊 CIE 1931 Chromaticity Diagram", "📈 Spectral Power Distributions", "📋 Numerical Data & Calibration"])
 
 with tab1:
-    st.markdown("💡 *Hover over any point to see exact coordinates. Click and drag a box to zoom into any region; double-click to reset view. Use the sidebar slider to resize the graph height.*")
+    st.caption("💡 Adjust Graph Width & Height sliders in the sidebar to resize this window box. Toggle 'Lock 1:1 Aspect Ratio' to preserve true color geometry.")
 
     fig_cie = go.Figure()
 
@@ -239,17 +243,17 @@ with tab1:
         x=locus_x, y=locus_y,
         mode='lines',
         name='CIE 1931 Spectral Locus',
-        line=dict(color='black', width=2.5),
+        line=dict(color='#888888', width=2),
         customdata=locus_wl,
         hovertemplate='Wavelength: %{customdata:.1f} nm<br>x: %{x:.4f}<br>y: %{y:.4f}<extra></extra>'
     ))
 
-    # Line connecting locus ends (purple line)
+    # Line of purples
     fig_cie.add_trace(go.Scatter(
         x=[locus_x[0], locus_x[-1]], y=[locus_y[0], locus_y[-1]],
         mode='lines',
         name='Line of Purples',
-        line=dict(color='purple', width=1.5, dash='dot'),
+        line=dict(color='#aa55ff', width=1.5, dash='dot'),
         hoverinfo='skip'
     ))
 
@@ -260,7 +264,7 @@ with tab1:
             y=[0.33, 0.60, 0.06, 0.33],
             mode='lines',
             name='Rec. 709 (HDTV)',
-            line=dict(color='gray', width=1.5, dash='dash'),
+            line=dict(color='#aaaaaa', width=1.5, dash='dash'),
             hovertemplate='Rec. 709<br>x: %{x:.3f}, y: %{y:.3f}<extra></extra>'
         ))
 
@@ -270,7 +274,7 @@ with tab1:
             y=[0.32, 0.690, 0.06, 0.32],
             mode='lines',
             name='DCI-P3 (Cinema)',
-            line=dict(color='magenta', width=1.5, dash='dashdot'),
+            line=dict(color='#ff00ff', width=1.5, dash='dashdot'),
             hovertemplate='DCI-P3<br>x: %{x:.3f}, y: %{y:.3f}<extra></extra>'
         ))
 
@@ -280,7 +284,7 @@ with tab1:
             y=[0.292, 0.797, 0.046, 0.292],
             mode='lines',
             name='Rec. 2020 (UHD)',
-            line=dict(color='darkgreen', width=1.5, dash='dot'),
+            line=dict(color='#00ffaa', width=1.5, dash='dot'),
             hovertemplate='Rec. 2020<br>x: %{x:.3f}, y: %{y:.3f}<extra></extra>'
         ))
 
@@ -291,9 +295,9 @@ with tab1:
         x=engine_x, y=engine_y,
         mode='lines',
         fill='toself',
-        fillcolor='rgba(0, 102, 255, 0.15)',
+        fillcolor='rgba(30, 144, 255, 0.20)',
         name='Simulated Engine Gamut',
-        line=dict(color='royalblue', width=3),
+        line=dict(color='#1e90ff', width=2.5),
         hovertemplate='Engine Gamut Corner<br>x: %{x:.4f}<br>y: %{y:.4f}<extra></extra>'
     ))
 
@@ -302,7 +306,7 @@ with tab1:
         x=[x_red], y=[y_red],
         mode='markers',
         name=f'Red Primary ({x_red:.3f}, {y_red:.3f})',
-        marker=dict(color='red', size=14, symbol='circle', line=dict(color='white', width=1.5)),
+        marker=dict(color='#ff3333', size=12, symbol='circle', line=dict(color='#ffffff', width=1.5)),
         hovertemplate='<b>Red Primary</b><br>Peak: ' + f'{red_peak:.1f}' + ' nm<br>x: %{x:.4f}<br>y: %{y:.4f}<extra></extra>'
     ))
 
@@ -310,7 +314,7 @@ with tab1:
         x=[x_green], y=[y_green],
         mode='markers',
         name=f'Green Primary ({x_green:.3f}, {y_green:.3f})',
-        marker=dict(color='green', size=14, symbol='circle', line=dict(color='white', width=1.5)),
+        marker=dict(color='#33cc33', size=12, symbol='circle', line=dict(color='#ffffff', width=1.5)),
         hovertemplate='<b>Green Primary</b><br>Extracted Green<br>x: %{x:.4f}<br>y: %{y:.4f}<extra></extra>'
     ))
 
@@ -318,7 +322,7 @@ with tab1:
         x=[x_blue], y=[y_blue],
         mode='markers',
         name=f'Blue Primary ({x_blue:.3f}, {y_blue:.3f})',
-        marker=dict(color='blue', size=14, symbol='circle', line=dict(color='white', width=1.5)),
+        marker=dict(color='#3388ff', size=12, symbol='circle', line=dict(color='#ffffff', width=1.5)),
         hovertemplate='<b>Blue Primary</b><br>Peak: ' + f'{blue_peak:.1f}' + ' nm<br>x: %{x:.4f}<br>y: %{y:.4f}<extra></extra>'
     ))
 
@@ -326,7 +330,7 @@ with tab1:
         x=[x_white], y=[y_white],
         mode='markers',
         name=f'Engine White ({x_white:.3f}, {y_white:.3f})',
-        marker=dict(color='black', size=18, symbol='star', line=dict(color='yellow', width=1.5)),
+        marker=dict(color='#ffd700', size=16, symbol='star', line=dict(color='#ffffff', width=1.5)),
         hovertemplate='<b>Engine Calibrated White</b><br>x: %{x:.4f}<br>y: %{y:.4f}<extra></extra>'
     ))
 
@@ -334,25 +338,37 @@ with tab1:
         x=[target_x_val], y=[target_y_val],
         mode='markers',
         name=f'Target ({target_x_val:.3f}, {target_y_val:.3f})',
-        marker=dict(color='darkorange', size=14, symbol='x', line=dict(color='darkorange', width=2.5)),
+        marker=dict(color='#ff9900', size=12, symbol='x', line=dict(color='#ff9900', width=2.5)),
         hovertemplate='<b>Target White Point</b><br>x: %{x:.4f}<br>y: %{y:.4f}<extra></extra>'
     ))
 
+    # Configure axes dict with optional 1:1 scale locking
+    yaxis_dict = dict(title="CIE y Chromaticity", range=[0.0, 0.90], gridcolor="rgba(128,128,128,0.25)", zeroline=False)
+    if lock_aspect:
+        yaxis_dict["scaleanchor"] = "x"
+        yaxis_dict["scaleratio"] = 1.0
+
     fig_cie.update_layout(
-        title=dict(text="<b>CIE 1931 Chromaticity Diagram & Display Gamut Comparison</b>", font=dict(size=16)),
-        xaxis=dict(title="CIE x Chromaticity", range=[0.0, 0.82], gridcolor="rgba(200,200,200,0.4)", zeroline=False),
-        yaxis=dict(title="CIE y Chromaticity", range=[0.0, 0.90], gridcolor="rgba(200,200,200,0.4)", zeroline=False),
+        title=dict(text="<b>CIE 1931 Chromaticity Diagram & Display Gamut Comparison</b>", font=dict(size=15)),
+        xaxis=dict(title="CIE x Chromaticity", range=[0.0, 0.82], gridcolor="rgba(128,128,128,0.25)", zeroline=False),
+        yaxis=yaxis_dict,
+        width=chart_width,
         height=chart_height,
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
         margin=dict(l=40, r=40, t=50, b=40),
-        legend=dict(x=0.68, y=0.98, bgcolor="rgba(255,255,255,0.85)", bordercolor="rgba(0,0,0,0.2)", borderwidth=1),
+        legend=dict(x=0.62, y=0.98, bgcolor="rgba(128,128,128,0.18)", bordercolor="rgba(128,128,128,0.3)", borderwidth=1),
         hovermode="closest"
     )
 
-    st.plotly_chart(fig_cie, use_container_width=True)
+    # Centered container display
+    c_left, c_mid, c_right = st.columns([0.05, 0.9, 0.05])
+    with c_mid:
+        st.plotly_chart(fig_cie, use_container_width=False)
 
 
 with tab2:
-    st.markdown("💡 *Hover over the spectrum lines to inspect exact power spectral density at any wavelength (nm).*")
+    st.caption("💡 Adjust Graph Width & Height sliders in the sidebar to resize this window box.")
 
     fig_spd = go.Figure()
 
@@ -360,7 +376,7 @@ with tab2:
         x=wavelengths, y=w_b * spd_blue_laser,
         mode='lines',
         name='Blue Laser Primary',
-        line=dict(color='blue', width=2.5),
+        line=dict(color='#3388ff', width=2.5),
         hovertemplate='Blue Laser<br>Wavelength: %{x:.1f} nm<br>Intensity: %{y:.4f}<extra></extra>'
     ))
 
@@ -368,7 +384,7 @@ with tab2:
         x=wavelengths, y=spd_yellow_phosphor * 0.5,
         mode='lines',
         name='Yellow Phosphor Emission',
-        line=dict(color='gold', width=2, dash='dash'),
+        line=dict(color='#ffd700', width=2, dash='dash'),
         hovertemplate='Yellow Phosphor<br>Wavelength: %{x:.1f} nm<br>Intensity: %{y:.4f}<extra></extra>'
     ))
 
@@ -376,7 +392,7 @@ with tab2:
         x=wavelengths, y=w_g * spd_green_channel,
         mode='lines',
         name='Filtered Green Primary',
-        line=dict(color='green', width=2.5),
+        line=dict(color='#33cc33', width=2.5),
         hovertemplate='Filtered Green<br>Wavelength: %{x:.1f} nm<br>Intensity: %{y:.4f}<extra></extra>'
     ))
 
@@ -384,7 +400,7 @@ with tab2:
         x=wavelengths, y=w_r * spd_red_laser,
         mode='lines',
         name='Red Laser/LED Primary',
-        line=dict(color='red', width=2.5),
+        line=dict(color='#ff3333', width=2.5),
         hovertemplate='Red Primary<br>Wavelength: %{x:.1f} nm<br>Intensity: %{y:.4f}<extra></extra>'
     ))
 
@@ -392,21 +408,26 @@ with tab2:
         x=wavelengths, y=spd_engine_total,
         mode='lines',
         name='D65 Balanced Engine Output',
-        line=dict(color='black', width=3),
+        line=dict(color='#17becf', width=3),
         hovertemplate='Calibrated Engine Output<br>Wavelength: %{x:.1f} nm<br>Intensity: %{y:.4f}<extra></extra>'
     ))
 
     fig_spd.update_layout(
-        title=dict(text="<b>Solid-State Light Engine Spectral Power Distributions (SPDs)</b>", font=dict(size=16)),
-        xaxis=dict(title="Wavelength (nm)", range=[380, 750], gridcolor="rgba(200,200,200,0.4)"),
-        yaxis=dict(title="Normalized Spectral Intensity (a.u.)", range=[0, 1.25], gridcolor="rgba(200,200,200,0.4)"),
-        height=int(chart_height * 0.8),
+        title=dict(text="<b>Solid-State Light Engine Spectral Power Distributions (SPDs)</b>", font=dict(size=15)),
+        xaxis=dict(title="Wavelength (nm)", range=[380, 750], gridcolor="rgba(128,128,128,0.25)"),
+        yaxis=dict(title="Normalized Spectral Intensity (a.u.)", range=[0, 1.25], gridcolor="rgba(128,128,128,0.25)"),
+        width=chart_width,
+        height=int(chart_height * 0.85),
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
         margin=dict(l=40, r=40, t=50, b=40),
-        legend=dict(x=0.68, y=0.98, bgcolor="rgba(255,255,255,0.85)", bordercolor="rgba(0,0,0,0.2)", borderwidth=1),
+        legend=dict(x=0.62, y=0.98, bgcolor="rgba(128,128,128,0.18)", bordercolor="rgba(128,128,128,0.3)", borderwidth=1),
         hovermode="x unified"
     )
 
-    st.plotly_chart(fig_spd, use_container_width=True)
+    c_left, c_mid, c_right = st.columns([0.05, 0.9, 0.05])
+    with c_mid:
+        st.plotly_chart(fig_spd, use_container_width=False)
 
 
 with tab3:
@@ -436,4 +457,4 @@ with tab3:
         st.code(f"[X_target, Y_target, Z_target] = [{target_xyz[0]:.3f}, {target_xyz[1]:.3f}, {target_xyz[2]:.3f}]")
 
 st.markdown("---")
-st.caption("Senior Optical Engineer Portfolio Project | Developed in Python & Streamlit")
+st.caption("Optical Engineer Portfolio Project | Developed in Python & Streamlit")
