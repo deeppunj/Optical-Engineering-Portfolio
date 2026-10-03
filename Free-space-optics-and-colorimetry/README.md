@@ -1,5 +1,5 @@
 # Free-Space Illumination Optics, Colorimetry & Optical Test Automation
-[![Streamlit App](https://static.streamlit.io/badges/streamlit\_badge\_black\_white.svg)](https://your-app-url.streamlit.app)
+[![Streamlit App](https://static.streamlit.io/badges/streamlit\_badge\_black\_white.svg)](https://colorimetry-interactive-simulator.streamlit.app/)
 ![Python](https://img.shields.io/badge/Python-3.10%2B-blue)
 ![License](https://img.shields.io/badge/License-MIT-green)
 ![Domain](https://img.shields.io/badge/Domain-Free--Space%20Optics%20%26%20Colorimetry-orange)
